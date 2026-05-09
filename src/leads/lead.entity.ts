@@ -1,4 +1,6 @@
-import { LeadQualification } from '../ai/ai.types';
+import type { Lead } from '@prisma/client';
+
+export type LeadRecord = Lead;
 
 export type LeadStatus =
   | 'new'
@@ -7,19 +9,3 @@ export type LeadStatus =
   | 'warm'
   | 'cold'
   | 'disqualified';
-
-export interface LeadRecord {
-  id: string;
-  name?: string;
-  company?: string;
-  role?: string;
-  phone: string;
-  email?: string;
-  notes?: string;
-  status: LeadStatus;
-  score?: number;
-  qualification?: LeadQualification;
-  lastCallId?: string;
-  createdAt: string;
-  updatedAt: string;
-}

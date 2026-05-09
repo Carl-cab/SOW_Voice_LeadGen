@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Call {
+  id           String    @id @default(uuid())
+  retellCallId String?   @unique
+  toNumber     String
+  fromNumber   String?
+  agentId      String
+  leadId       String?
+  status       String    @default("queued")
+  startedAt    DateTime?
+  endedAt      DateTime?
+  durationMs   Int?
+  transcript   String?
+  recordingUrl String?
+  summary      String?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  lead Lead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([leadId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Lead {
+  id            String   @id @default(uuid())
+  name          String?
+  company       String?
+  role          String?
+  phone         String
+  email         String?
+  notes         String?
+  status        String   @default("new")
+  score         Int?
+  qualification Json?
+  lastCallId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  calls Call[]
+
+  @@index([status])
+  @@index([phone])
+  @@index([score])
+  @@index([createdAt])
+}

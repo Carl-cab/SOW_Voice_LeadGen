@@ -8,10 +8,10 @@ import {
   Post,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Call } from '@prisma/client';
 import { CallsService } from './calls.service';
 import { CreateCallDto } from './dto/create-call.dto';
 import { RetellService } from '../retell/retell.service';
-import { CallRecord } from './call.entity';
 
 @Controller('calls')
 export class CallsController {
@@ -22,7 +22,7 @@ export class CallsController {
   ) {}
 
   @Post()
-  async create(@Body() dto: CreateCallDto): Promise<CallRecord> {
+  async create(@Body() dto: CreateCallDto): Promise<Call> {
     const agentId =
       dto.agentId ?? this.config.get<string>('RETELL_DEFAULT_AGENT_ID');
     if (!agentId) {
@@ -34,7 +34,7 @@ export class CallsController {
 
     const fromNumber = this.config.get<string>('RETELL_FROM_NUMBER');
 
-    const record = this.calls.create({
+    const record = await this.calls.create({
       toNumber: dto.toNumber,
       fromNumber,
       agentId,
@@ -49,13 +49,13 @@ export class CallsController {
         agentId,
         metadata: { ...dto.metadata, internalCallId: record.id },
       });
-      return this.calls.update(record.id, {
+      return await this.calls.update(record.id, {
         retellCallId: retell.call_id,
         status: 'registered',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'unknown error';
-      this.calls.update(record.id, { status: 'failed' });
+      await this.calls.update(record.id, { status: 'failed' });
       throw new HttpException(
         `Retell createCall failed: ${message}`,
         HttpStatus.BAD_GATEWAY,
@@ -64,12 +64,12 @@ export class CallsController {
   }
 
   @Get()
-  list(): CallRecord[] {
+  list(): Promise<Call[]> {
     return this.calls.list();
   }
 
   @Get(':id')
-  get(@Param('id') id: string): CallRecord {
+  get(@Param('id') id: string): Promise<Call> {
     return this.calls.get(id);
   }
 }

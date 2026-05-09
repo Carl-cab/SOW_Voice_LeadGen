@@ -1,77 +1,88 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-import { CallRecord, CallStatus } from './call.entity';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, Call } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+
+export interface CreateCallInput {
+  toNumber: string;
+  fromNumber?: string;
+  agentId: string;
+  leadId?: string;
+  status?: string;
+  retellCallId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CallPatch {
+  toNumber?: string;
+  fromNumber?: string;
+  agentId?: string;
+  leadId?: string;
+  retellCallId?: string;
+  status?: string;
+  startedAt?: Date;
+  endedAt?: Date;
+  durationMs?: number;
+  transcript?: string;
+  recordingUrl?: string;
+  summary?: string;
+}
 
 @Injectable()
 export class CallsService {
-  private readonly logger = new Logger(CallsService.name);
-  private readonly calls = new Map<string, CallRecord>();
-  private readonly retellIndex = new Map<string, string>();
+  constructor(private readonly prisma: PrismaService) {}
 
-  create(partial: Omit<CallRecord, 'id' | 'createdAt' | 'updatedAt' | 'status'> & {
-    status?: CallStatus;
-  }): CallRecord {
-    const now = new Date().toISOString();
-    const record: CallRecord = {
-      id: randomUUID(),
-      status: partial.status ?? 'queued',
-      createdAt: now,
-      updatedAt: now,
-      ...partial,
-    };
-    this.calls.set(record.id, record);
-    if (record.retellCallId) {
-      this.retellIndex.set(record.retellCallId, record.id);
-    }
-    return record;
+  create(input: CreateCallInput): Promise<Call> {
+    return this.prisma.call.create({
+      data: {
+        toNumber: input.toNumber,
+        fromNumber: input.fromNumber,
+        agentId: input.agentId,
+        leadId: input.leadId,
+        status: input.status ?? 'queued',
+        retellCallId: input.retellCallId,
+        metadata: (input.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+      },
+    });
   }
 
-  list(): CallRecord[] {
-    return Array.from(this.calls.values()).sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+  list(): Promise<Call[]> {
+    return this.prisma.call.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
-  get(id: string): CallRecord {
-    const record = this.calls.get(id);
+  async get(id: string): Promise<Call> {
+    const record = await this.prisma.call.findUnique({ where: { id } });
     if (!record) throw new NotFoundException(`Call ${id} not found`);
     return record;
   }
 
-  findByRetellId(retellCallId: string): CallRecord | undefined {
-    const id = this.retellIndex.get(retellCallId);
-    return id ? this.calls.get(id) : undefined;
+  findByRetellId(retellCallId: string): Promise<Call | null> {
+    return this.prisma.call.findUnique({ where: { retellCallId } });
   }
 
-  update(id: string, patch: Partial<CallRecord>): CallRecord {
-    const existing = this.get(id);
-    const next: CallRecord = {
-      ...existing,
-      ...patch,
-      id: existing.id,
-      createdAt: existing.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    this.calls.set(id, next);
-    if (patch.retellCallId && patch.retellCallId !== existing.retellCallId) {
-      this.retellIndex.set(patch.retellCallId, id);
-    }
-    return next;
+  update(id: string, patch: CallPatch): Promise<Call> {
+    return this.prisma.call.update({ where: { id }, data: patch });
   }
 
-  upsertByRetellId(retellCallId: string, patch: Partial<CallRecord>): CallRecord {
-    const existing = this.findByRetellId(retellCallId);
+  async upsertByRetellId(retellCallId: string, patch: CallPatch): Promise<Call> {
+    const existing = await this.findByRetellId(retellCallId);
     if (existing) {
-      return this.update(existing.id, patch);
+      return this.prisma.call.update({ where: { id: existing.id }, data: patch });
     }
-    this.logger.warn(
-      `No local call for retellCallId=${retellCallId}; creating shadow record`,
-    );
-    return this.create({
-      retellCallId,
-      toNumber: patch.toNumber ?? 'unknown',
-      agentId: patch.agentId ?? 'unknown',
-      ...patch,
+    return this.prisma.call.create({
+      data: {
+        retellCallId,
+        toNumber: patch.toNumber ?? 'unknown',
+        agentId: patch.agentId ?? 'unknown',
+        status: patch.status ?? 'in_progress',
+        fromNumber: patch.fromNumber,
+        leadId: patch.leadId,
+        startedAt: patch.startedAt,
+        endedAt: patch.endedAt,
+        durationMs: patch.durationMs,
+        transcript: patch.transcript,
+        recordingUrl: patch.recordingUrl,
+        summary: patch.summary,
+      },
     });
   }
 }

@@ -1,70 +1,59 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-import { LeadRecord, LeadStatus } from './lead.entity';
+import { Prisma, Lead } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
+import { LeadStatus } from './lead.entity';
 import { LeadQualification } from '../ai/ai.types';
 
 @Injectable()
 export class LeadsService {
-  private readonly leads = new Map<string, LeadRecord>();
+  constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateLeadDto): LeadRecord {
-    const now = new Date().toISOString();
-    const record: LeadRecord = {
-      id: randomUUID(),
-      name: dto.name,
-      company: dto.company,
-      role: dto.role,
-      phone: dto.phone,
-      email: dto.email,
-      notes: dto.notes,
-      status: 'new',
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.leads.set(record.id, record);
-    return record;
+  create(dto: CreateLeadDto): Promise<Lead> {
+    return this.prisma.lead.create({
+      data: {
+        name: dto.name,
+        company: dto.company,
+        role: dto.role,
+        phone: dto.phone,
+        email: dto.email,
+        notes: dto.notes,
+        status: 'new',
+      },
+    });
   }
 
-  list(): LeadRecord[] {
-    return Array.from(this.leads.values()).sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+  list(): Promise<Lead[]> {
+    return this.prisma.lead.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
-  get(id: string): LeadRecord {
-    const lead = this.leads.get(id);
+  async get(id: string): Promise<Lead> {
+    const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException(`Lead ${id} not found`);
     return lead;
   }
 
-  update(id: string, patch: Partial<LeadRecord>): LeadRecord {
-    const existing = this.get(id);
-    const next: LeadRecord = {
-      ...existing,
-      ...patch,
-      id: existing.id,
-      createdAt: existing.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    this.leads.set(id, next);
-    return next;
+  update(id: string, patch: Prisma.LeadUpdateInput): Promise<Lead> {
+    return this.prisma.lead.update({ where: { id }, data: patch });
   }
 
   applyQualification(
     id: string,
     qualification: LeadQualification,
     callId?: string,
-  ): LeadRecord {
+  ): Promise<Lead> {
     const status: LeadStatus =
       qualification.status === 'disqualified'
         ? 'disqualified'
         : qualification.status;
-    return this.update(id, {
-      qualification,
-      score: qualification.score,
-      status,
-      lastCallId: callId,
+    return this.prisma.lead.update({
+      where: { id },
+      data: {
+        qualification: qualification as unknown as Prisma.InputJsonValue,
+        score: qualification.score,
+        status,
+        lastCallId: callId,
+      },
     });
   }
 }

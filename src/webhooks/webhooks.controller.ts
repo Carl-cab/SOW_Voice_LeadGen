@@ -1,7 +1,8 @@
-import { Body, Controller, HttpCode, Logger, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, Logger, Post, UseGuards } from '@nestjs/common';
 import { CallsService } from '../calls/calls.service';
 import { AiService } from '../ai/ai.service';
 import { LeadsService } from '../leads/leads.service';
+import { RetellSignatureGuard } from './retell-signature.guard';
 
 interface RetellWebhookPayload {
   event: string;
@@ -20,6 +21,7 @@ interface RetellWebhookPayload {
 }
 
 @Controller('webhooks/retell')
+@UseGuards(RetellSignatureGuard)
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);
 
@@ -42,20 +44,18 @@ export class WebhooksController {
 
     switch (payload.event) {
       case 'call_started':
-        this.calls.upsertByRetellId(call.call_id, {
+        await this.calls.upsertByRetellId(call.call_id, {
           status: 'in_progress',
-          startedAt: call.start_timestamp
-            ? new Date(call.start_timestamp).toISOString()
-            : new Date().toISOString(),
+          startedAt: call.start_timestamp ? new Date(call.start_timestamp) : new Date(),
         });
         break;
 
       case 'call_ended': {
         const startedAt = call.start_timestamp ? new Date(call.start_timestamp) : undefined;
         const endedAt = call.end_timestamp ? new Date(call.end_timestamp) : new Date();
-        this.calls.upsertByRetellId(call.call_id, {
+        await this.calls.upsertByRetellId(call.call_id, {
           status: 'completed',
-          endedAt: endedAt.toISOString(),
+          endedAt,
           durationMs: startedAt ? endedAt.getTime() - startedAt.getTime() : undefined,
           transcript: call.transcript,
           recordingUrl: call.recording_url,
@@ -64,7 +64,7 @@ export class WebhooksController {
       }
 
       case 'call_analyzed': {
-        const record = this.calls.findByRetellId(call.call_id);
+        const record = await this.calls.findByRetellId(call.call_id);
         const transcript = call.transcript ?? record?.transcript ?? '';
 
         if (!transcript) {
@@ -73,14 +73,14 @@ export class WebhooksController {
         }
 
         const summary = await this.ai.summarizeTranscript(transcript);
-        const updated = this.calls.upsertByRetellId(call.call_id, {
+        const updated = await this.calls.upsertByRetellId(call.call_id, {
           transcript,
           summary: summary.summary,
         });
 
         if (updated.leadId) {
           const qualification = await this.ai.qualifyLead({ transcript });
-          this.leads.applyQualification(updated.leadId, qualification, updated.id);
+          await this.leads.applyQualification(updated.leadId, qualification, updated.id);
         }
         break;
       }
